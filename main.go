@@ -31,7 +31,6 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Continue to actual handler
 		h(w, r)
 	}
 }
@@ -153,7 +152,6 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 
 // --- Main ---
 func main() {
-	// List & create
 	http.HandleFunc("/users", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
@@ -165,7 +163,6 @@ func main() {
 		}
 	}))
 
-	// Single-user operations
 	http.HandleFunc("/user", withCORS(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
