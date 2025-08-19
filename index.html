@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Users CRUD (single-file)</title>
+  <style>
+    :root{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial;--muted:#6b7280}
+    body{max-width:1000px;margin:28px auto;padding:20px}
+    h1{font-size:24px;margin-bottom:6px}
+    p.lead{color:var(--muted);margin-top:0;margin-bottom:18px}
+    .row{display:flex;gap:12px}
+    .card{background:#fff;border:1px solid #e6e6e6;padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.03)}
+    .panel{display:flex;gap:12px;align-items:center}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:8px 10px;border-bottom:1px solid #eee;text-align:left}
+    th{font-weight:600;color:#111}
+    button{padding:8px 10px;border-radius:8px;border:1px solid #ddd;background:#fafafa;cursor:pointer}
+    button.primary{background:#111;color:#fff;border:none}
+    button.danger{background:#fff;color:#c62828;border:1px solid #f2dede}
+    form>div{margin-bottom:8px}
+    input[type=text],input[type=email]{padding:8px;border-radius:8px;border:1px solid #ddd;width:100%}
+    .small{font-size:13px;color:var(--muted)}
+    .flex-right{display:flex;gap:8px}
+    .status{margin-top:8px}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <h1>Users CRUD — Single HTML file</h1>
+  <p class="lead">This page talks to the API at <code>https://go-118069560052.europe-west1.run.app/users</code>. It lists users and lets you create, edit and delete entries.</p>
+
+  <div class="row">
+    <div style="flex:2" class="card">
+      <div class="panel">
+        <div style="flex:1">
+          <strong>Users</strong>
+          <div class="small">Fetched from API — click a row to edit</div>
+        </div>
+        <div class="flex-right">
+          <input id="search" placeholder="Search..." />
+          <button id="refresh">Refresh</button>
+        </div>
+      </div>
+
+      <div id="listArea">
+        <table id="usersTable">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="status" id="status"></div>
+    </div>
+
+    <div style="flex:1" class="card">
+      <strong id="formTitle">Create user</strong>
+      <form id="userForm">
+        <!-- dynamic fields inserted here -->
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button type="submit" class="primary" id="submitBtn">Create</button>
+          <button type="button" id="cancelEdit">Cancel</button>
+        </div>
+      </form>
+
+      <div style="margin-top:12px">
+        <div class="small">Notes:</div>
+        <ul class="small">
+          <li>The form adapts to the first returned user's fields. If your API uses different names, adjust the code.</li>
+          <li>If you get CORS errors in the browser, see the instructions below.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <hr />
+  <div class="small">How to use: open this file in a browser (or serve it via a static server). Click <em>Refresh</em> to fetch users. Click a row to edit. Use the form to create or update. The code attempts to detect the ID field automatically.</div>
+
+  <script>
+    const API_BASE = 'https://go-118069560052.europe-west1.run.app/users';
+    const tableHead = document.getElementById('tableHead');
+    const tableBody = document.getElementById('tableBody');
+    const status = document.getElementById('status');
+    const refreshBtn = document.getElementById('refresh');
+    const search = document.getElementById('search');
+    const form = document.getElementById('userForm');
+    const formTitle = document.getElementById('formTitle');
+    const submitBtn = document.getElementById('submitBtn');
+    const cancelEdit = document.getElementById('cancelEdit');
+
+    let users = [];
+    let schemaKeys = []; // keys used to build form
+    let idKey = 'id'; // detected id key
+    let editingId = null;
+
+    function showStatus(msg, err=false){
+      status.textContent = msg;
+      status.style.color = err ? '#c62828' : '#111';
+    }
+
+    async function fetchUsers(){
+      showStatus('Loading users...');
+      try{
+        const res = await fetch(API_BASE);
+        if(!res.ok) throw new Error(res.status + ' ' + res.statusText);
+        users = await res.json();
+        renderTable(users);
+        showStatus('Loaded ' + users.length + ' users.');
+        if(users.length>0 && schemaKeys.length===0) detectSchema(users[0]);
+      }catch(e){
+        console.error(e);
+        showStatus('Failed to fetch users: ' + e.message, true);
+      }
+    }
+
+    function detectSchema(obj){
+      schemaKeys = Object.keys(obj).filter(k=>k!=='createdAt'&&k!=='updatedAt');
+      // try to detect id key
+      const possibleIds = ['id','_id','userId','uuid'];
+      idKey = schemaKeys.find(k=>possibleIds.includes(k)) || schemaKeys[0];
+      buildForm();
+    }
+
+    function buildForm(){
+      // clear existing (except buttons)
+      Array.from(form.querySelectorAll('div.field')).forEach(n=>n.remove());
+      const before = submitBtn.parentElement;
+      schemaKeys.forEach(key=>{
+        const div = document.createElement('div');
+        div.className = 'field';
+        const label = document.createElement('label');
+        label.textContent = key;
+        const input = document.createElement('input');
+        input.name = key;
+        input.type = key.toLowerCase().includes('email') ? 'email' : 'text';
+        input.placeholder = key;
+        if(key===idKey){
+          input.disabled = true; // don't edit id
+        }
+        div.appendChild(label);
+        div.appendChild(input);
+        form.insertBefore(div, before);
+      });
+    }
+
+    function renderTable(list){
+      tableHead.innerHTML = '';
+      tableBody.innerHTML = '';
+      if(list.length===0){
+        tableHead.innerHTML = '<tr><th>No users</th></tr>';
+        return;
+      }
+      const keys = Object.keys(list[0]);
+      const headRow = document.createElement('tr');
+      keys.forEach(k=>{ const th = document.createElement('th'); th.textContent = k; headRow.appendChild(th); });
+      headRow.appendChild(document.createElement('th'));
+      tableHead.appendChild(headRow);
+
+      list.forEach(item=>{
+        const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        keys.forEach(k=>{
+          const td = document.createElement('td');
+          let v = item[k];
+          if(typeof v === 'object' && v !== null) v = JSON.stringify(v);
+          td.textContent = v === undefined ? '' : v;
+          tr.appendChild(td);
+        });
+        const ops = document.createElement('td');
+        const del = document.createElement('button');
+        del.textContent = 'Delete';
+        del.className = 'danger';
+        del.addEventListener('click', async (ev)=>{
+          ev.stopPropagation();
+          if(!confirm('Delete this user?')) return;
+          await deleteUser(item[idKey]);
+        });
+        ops.appendChild(del);
+        tr.appendChild(ops);
+
+        tr.addEventListener('click', ()=> startEdit(item));
+        tableBody.appendChild(tr);
+      });
+    }
+
+    function startEdit(item){
+      editingId = item[idKey];
+      formTitle.textContent = 'Edit user — ' + editingId;
+      submitBtn.textContent = 'Update';
+      // fill values
+      schemaKeys.forEach(k=>{
+        const inp = form.elements[k];
+        if(inp) inp.value = item[k] !== undefined && item[k] !== null ? item[k] : '';
+      });
+    }
+
+    function resetForm(){
+      editingId = null;
+      formTitle.textContent = 'Create user';
+      submitBtn.textContent = 'Create';
+      form.reset();
+      // re-disable id
+      if(form.elements[idKey]) form.elements[idKey].disabled = true;
+    }
+
+    async function createUser(payload){
+      showStatus('Creating user...');
+      try{
+        const res = await fetch(API_BASE, {
+          method:'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        if(!res.ok) throw new Error(res.status + ' ' + res.statusText);
+        const data = await res.json();
+        showStatus('Created.');
+        await fetchUsers();
+        resetForm();
+      }catch(e){
+        console.error(e);
+        showStatus('Create failed: ' + e.message, true);
+      }
+    }
+
+    async function updateUser(id, payload){
+      showStatus('Updating user...');
+      try{
+        const url = API_BASE + '/' + encodeURIComponent(id);
+        const res = await fetch(url, {
+          method:'PUT',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        if(!res.ok) throw new Error(res.status + ' ' + res.statusText);
+        await res.json();
+        showStatus('Updated.');
+        await fetchUsers();
+        resetForm();
+      }catch(e){
+        console.error(e);
+        showStatus('Update failed: ' + e.message, true);
+      }
+    }
+
+    async function deleteUser(id){
+      showStatus('Deleting...');
+      try{
+        const url = API_BASE + '/' + encodeURIComponent(id);
+        const res = await fetch(url, {method:'DELETE'});
+        if(!res.ok) throw new Error(res.status + ' ' + res.statusText);
+        showStatus('Deleted.');
+        await fetchUsers();
+      }catch(e){
+        console.error(e);
+        showStatus('Delete failed: ' + e.message, true);
+      }
+    }
+
+    form.addEventListener('submit', async (ev)=>{
+      ev.preventDefault();
+      // build object from form fields (skip disabled id)
+      const payload = {};
+      schemaKeys.forEach(k=>{
+        const el = form.elements[k];
+        if(!el) return;
+        if(el.disabled) return;
+        let val = el.value;
+        // try to coerce numbers
+        if(val!=='' && !isNaN(val) && !k.toLowerCase().includes('id')){
+          // keep as string unless it's pure number
+          if(String(Number(val)) === val) val = Number(val);
+        }
+        payload[k] = val;
+      });
+      if(editingId){
+        await updateUser(editingId, payload);
+      }else{
+        await createUser(payload);
+      }
+    });
+
+    cancelEdit.addEventListener('click', ()=>resetForm());
+    refreshBtn.addEventListener('click', ()=>fetchUsers());
+    search.addEventListener('input', ()=>{
+      const q = search.value.toLowerCase().trim();
+      if(!q) return renderTable(users);
+      const filtered = users.filter(u=> JSON.stringify(u).toLowerCase().includes(q));
+      renderTable(filtered);
+    });
+
+    // initial
+    (async ()=>{
+      showStatus('Ready. Click Refresh to load users.');
+      // attempt initial fetch
+      await fetchUsers();
+    })();
+
+    // Helpful CORS note shown in console
+    console.log('If you see CORS errors, your browser blocked requests to a different origin. To fix: (1) enable CORS on the API server, (2) serve this file from the same origin, or (3) use a local proxy during development.');
+  </script>
+</body>
+</html>
